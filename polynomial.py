@@ -1,39 +1,74 @@
 import numpy as np
 import unittest
 import random
-import itertools
+from modulo_math import ModuloMath
+
+
+class helper:
+    @staticmethod
+    def min(x, y):
+        return y ^ ((x ^ y) & -(x < y))
+
+    # Function to find maximum of x and y
+    @staticmethod
+    def max(x, y):
+        return x ^ ((x ^ y) & -(x < y))
 
 
 class Poly:
-    def __init__(self, coefficients=[]):
+    def __init__(self, coefficients=[], mod=2):
+        self.mod = mod
         if(len(coefficients) == 0):
             self.coefficients = [0]
         else:
-            self.coefficients = np.array(coefficients).astype(np.float32)
+            self.coefficients = [0] * len(coefficients)
+            for idx, coef in enumerate(coefficients):
+                self.coefficients[idx] = coef % self.mod
 
     def add(self, other):
         """
         Add two polynomials together. EX : (3x^2 + x - 2) + (3x + 2)
         """
         maxLen = max(len(self.coefficients), len(other.coefficients))
-        # pad both array with zeros to have the same length
-        sSelf = np.pad(self.coefficients, (0, maxLen - len(self.coefficients)))
-        sOther = np.pad(other.coefficients,
-                        (0, maxLen - len(other.coefficients)))
+        newArray = [0]*maxLen
 
-        return Poly(np.trim_zeros(np.add(sSelf, sOther), 'b'))
+        for i in range(maxLen):
+            val1 = 0
+            val2 = 0
+            if(i < len(self.coefficients)):
+                val1 = self.coefficients[i]
+            if(i < len(other.coefficients)):
+                val2 = other.coefficients[i]
+
+            newArray[i] = (val1 + val2) % self.mod
+
+        # trim zeros
+        while newArray[-1] == 0 and len(newArray) > 1:
+            del newArray[-1]
+
+        return Poly(newArray, self.mod)
 
     def subtract(self, other):
         """
         Multiply two polynomials together. EX : (3x^2 + x - 2) - (3x + 2)
         """
         maxLen = max(len(self.coefficients), len(other.coefficients))
-        # pad both array with zeros to have the same length
-        sSelf = np.pad(self.coefficients, (0, maxLen - len(self.coefficients)))
-        sOther = np.pad(other.coefficients,
-                        (0, maxLen - len(other.coefficients)))
+        newArray = [0]*maxLen
 
-        return Poly(np.trim_zeros(np.subtract(sSelf, sOther), 'b'))
+        for i in range(maxLen):
+            val1 = 0
+            val2 = 0
+            if(i < len(self.coefficients)):
+                val1 = self.coefficients[i]
+            if(i < len(other.coefficients)):
+                val2 = other.coefficients[i]
+
+            newArray[i] = (val1 - val2) % self.mod
+
+        while newArray[-1] == 0:
+            del newArray[-1]
+
+        return Poly(newArray, self.mod)
 
     def multiply(self, other):
         """
@@ -44,9 +79,9 @@ class Poly:
 
         for idx, val1 in np.ndenumerate(self.coefficients):
             for jdx, val2 in np.ndenumerate(other.coefficients):
-                newCoefs[idx[0] + jdx[0]] += val1 * val2
+                newCoefs[idx[0] + jdx[0]] += (val1 * val2) % self.mod
 
-        return Poly(np.trim_zeros(newCoefs, 'b'))
+        return Poly(np.trim_zeros(newCoefs, 'b'), self.mod)
 
     def multiply_scalar(self, scalar):
         """
@@ -55,50 +90,9 @@ class Poly:
         newCoefs = [0] * len(self.coefficients)
 
         for idx, val in np.ndenumerate(self.coefficients):
-            newCoefs[idx[0]] = val * scalar
+            newCoefs[idx[0]] = (val * scalar) % self.mod
 
-        return Poly(np.trim_zeros(newCoefs, 'b'))
-
-    def divide(self, divider, includeRemainder=False):
-        """
-        Divide a polynomial by another polynomial
-        """
-        maxLen = max(len(self.coefficients), len(divider.coefficients))
-        newPoly = Poly([0] * maxLen)
-        remainder = Poly(np.copy(self.coefficients))
-
-        dividerDegree = divider.maxDegree()
-        remainderDegree = remainder.maxDegree()
-
-        # as long as the degree of the remainder is bigger than the divider continue the division
-        while remainderDegree >= dividerDegree:
-            # find the division result between the two highest coefficients
-            division = remainder.coefficients[remainderDegree] / \
-                divider.coefficients[dividerDegree]
-            # multiply the divider by the division result and pad it to change it's degree
-            toRemove = Poly(np.pad(divider.multiply_scalar(
-                division).coefficients, (remainderDegree - dividerDegree, 0)))
-            # update result
-            newPoly.coefficients[remainderDegree - dividerDegree] = division
-
-            # subtract the divider from the remainder and update it's max degree
-            remainder = remainder.subtract(toRemove)
-            remainderDegree = remainder.maxDegree()
-
-        newPoly = Poly(np.trim_zeros(newPoly.coefficients, 'b'))
-        remainder = Poly(np.trim_zeros(remainder.coefficients, 'b'))
-
-        if(includeRemainder):
-            return [newPoly, remainder]
-        else:
-            return newPoly
-
-    def modulo(self, divider):
-        """
-        Remainder of the division of a polynomial by another polynomial
-        """
-
-        return self.divide(divider, True)[1]
+        return Poly(np.trim_zeros(newCoefs, 'b'), self.mod)
 
     def maxDegree(self):
         """
@@ -111,56 +105,29 @@ class Poly:
 
         return idx
 
+    def equals(self, other):
+        """
+        Deep equals verification between two polynomials.
+        """
+        return np.array_equal(self.coefficients, other.coefficients) and self.mod == other.mod
+
     def eval(self, number):
         """
-        Evaluate the polynomial with a certain number
+        Evaluate the polynomial with a given number.
         """
-        result = 0
-
-        for i, coef in enumerate(self.coefficients):
-            result += coef * pow(number, i)
+        result = self.coefficients[-1]
+        for i in range(len(self.coefficients)-1, 0, -1):
+            result = (result*number + self.coefficients[i-1]) % self.mod
 
         return result
 
     @staticmethod
-    def createPointsList(poly, length):
-        points = []
-
-        for i in range(0, length):
-            points.append(poly.eval(i))
-
-        return points
-
-    @staticmethod
-    def insertErrors(pointsList, amount):
-        randomIndices = []
-
-        for i in range(0, amount):
-            candidate = random.randint(0, len(pointsList)-1)
-            if(randomIndices.count(candidate) == 0):
-                randomIndices.append(candidate)
-
-        for i in randomIndices:
-            pointsList[i] = random.randint(0, 256)
-
-        return pointsList
-
-    @staticmethod
-    def formatPointsList(points):
-        newList = []
-
-        for i in enumerate(points):
-            newList.append(i)
-
-        return newList
-
-    @staticmethod
-    def lagrange(points):
+    def lagrange(points, mod=1):
         """
         Find the laragange polynomial passing through all the given points.
         """
         amount = len(points)
-        upperPolys = [Poly([1])] * amount
+        upperPolys = [Poly([1], mod)] * amount
         dividers = [1] * amount
 
         for i, point in enumerate(points):
@@ -168,16 +135,19 @@ class Poly:
                 # skip current number
                 if(i == j):
                     continue
+                # compute the current part of the upper polynomial
+                upperPolys[i] *= Poly([-other[0], 1], mod)
+                # compute the current part of the divider
 
-                upperPolys[i] *= Poly([-other[0], 1])
-                dividers[i] *= point[0] - other[0]
+                dividers[i] = dividers[i] * ModuloMath.euclid_extended(
+                    (point[0] - other[0]), mod)[1] % mod
+            # in modular arithmetics, instead of dividing we multiply by the modular inverse found with the extended Euclid algorithm
+            upperPolys[i] = upperPolys[i].multiply_scalar(dividers[i])
 
-            upperPolys[i] /= Poly([dividers[i]])
-
-        polyResult = Poly()
+        polyResult = Poly([], mod)
 
         for i, poly in enumerate(upperPolys):
-            polyResult += Poly([points[i][1]]) * poly
+            polyResult += Poly([points[i][1]], mod) * poly
 
         return polyResult
 
@@ -197,6 +167,8 @@ class Poly:
                     tmp += '%g' % (val) + 'x^' + str(i) + ' '
             i -= 1
 
+        tmp += " % " + str(self.mod)
+
         # remove the first + if it exists
         tmp = tmp.strip("+ ")
 
@@ -211,100 +183,63 @@ class Poly:
     def __mul__(self, other):
         return self.multiply(other)
 
-    def __truediv__(self, other):
-        return self.divide(other)
-
 
 class TestingPoly(unittest.TestCase):
     def test_add(self):
-        p1 = Poly([0, 2, 3, 1, 1])
-        p2 = Poly([4, 10, 3])
+        p1 = Poly([0, 2, 3, 1, 1], 11)
+        p2 = Poly([4, 10, 3], 11)
         res = p1.add(p2)
-        expected = Poly([4, 12, 6, 1, 1])
+        expected = Poly([4, 1, 6, 1, 1], 11)
 
         print("Addition")
         print(str(res) + ' == ' + str(expected))
 
-        self.assertTrue(np.array_equal(
-            res.coefficients, expected.coefficients))
+        self.assertTrue(res.equals(expected))
 
     def test_subtract(self):
-        p1 = Poly([0, 2, 3, 1, 1])
-        p2 = Poly([4, 10, 3])
+        p1 = Poly([0, 2, 3, 1, 1], 11)
+        p2 = Poly([4, 10, 3], 11)
         res = p1.subtract(p2)
-        expected = Poly([-4, -8, 0, 1, 1])
+        expected = Poly([7, 3, 0, 1, 1], 11)
 
         print("Substract")
         print(str(res) + ' == ' + str(expected))
 
-        self.assertTrue(np.array_equal(
-            res.coefficients, expected.coefficients))
+        self.assertTrue(res.equals(expected))
 
     def test_multiply(self):
-        p1 = Poly([0, 5, 2, 10])
-        p2 = Poly([5, 3, 1, 12])
+        p1 = Poly([0, 5, 2, 10], 13)
+        p2 = Poly([5, 3, 1, 12], 13)
         res = p1.multiply(p2)
-        expected = Poly([0, 25, 25, 61, 92, 34, 120])
+        expected = Poly([0, 12, 12, 9, 1, 8, 3], 13)
 
         print("Multiply")
         print(str(res) + ' == ' + str(expected))
 
-        self.assertTrue(np.array_equal(
-            res.coefficients, expected.coefficients))
-
-    def test_divide(self):
-        p1 = Poly([7, -2, 2, -3])
-        p2 = Poly([-2, 1])
-        res = p1.divide(p2, True)
-        expected = Poly([-10, -4, -3])
-        expectedRemainder = Poly([-13])
-
-        print("Divide")
-        print(str(res[0]) + ' == ' + str(expected))
-        print(str(res[1]) + ' == ' + str(expectedRemainder))
-
-        self.assertTrue(np.array_equal(
-            res[0].coefficients, expected.coefficients))
-        self.assertTrue(np.array_equal(
-            res[1].coefficients, expectedRemainder.coefficients))
+        self.assertTrue(res.equals(expected))
 
     def test_eval(self):
-        p = Poly([10, -2, 5])
+        p = Poly([10, -2, 5], 11)
         res = p.eval(5)
-        expected = 125
+        expected = 4
 
         self.assertTrue(res == expected)
 
     def test_lagrange(self):
-        points = [[0, 1], [1, 2], [2, 4]]
-        lagrangePoly = Poly.lagrange(points)
-        expected = Poly([1, 0.5, 0.5])
+        p1 = Poly([5, 2, 10, 2, 22], 23)
+
+        points = []
+
+        for i in range(len(p1.coefficients)):
+            points.append([i, p1.eval(i)])
+
+        lagrangePoly = Poly.lagrange(points, p1.mod)
 
         print("Lagrange")
-        print(str(lagrangePoly) + ' == ' + str(expected))
+        print(str(lagrangePoly) + ' == ' + str(p1))
 
-        self.assertTrue(np.array_equal(
-            lagrangePoly.coefficients, expected.coefficients))
+        self.assertTrue(lagrangePoly.equals(p1))
 
 
 if __name__ == '__main__':
-    # unittest.main()
-
-    p1 = Poly([5, 2, 45, 3,5])
-
-    points = Poly.createPointsList(p1, 7)
-    print(f"Original list : {points}")
-    points = Poly.insertErrors(points, 1)
-    print(f"Altered list : {points}")
-
-    formatList = Poly.formatPointsList(points)
-
-    polyLagrange = []
-    for i in itertools.combinations(formatList, len(p1.coefficients)):
-        candidate = Poly.lagrange(i)
-
-        if(polyLagrange.count(candidate) == 0):
-            polyLagrange.append(candidate)
-
-    for i in polyLagrange:
-        print(i)
+    unittest.main()
